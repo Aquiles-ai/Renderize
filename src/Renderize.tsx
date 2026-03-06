@@ -61,7 +61,7 @@ export function Renderize({
           key={srcDoc}
           srcDoc={srcDoc}
           title="Renderize Sandbox"
-          sandbox="allow-scripts"
+          sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
           style={{
             width: "100%",
             height: "100%",
