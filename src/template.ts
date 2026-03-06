@@ -1,18 +1,13 @@
 export function buildTemplate(code: string): string {
-  return /* html */ `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Tailwind CSS Play CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
 
-  <!-- Babel standalone: transpiles JSX at runtime -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- Import map: React + Radix UI + Lucide -->
   <script type="importmap">
   {
     "imports": {
@@ -53,17 +48,18 @@ export function buildTemplate(code: string): string {
       "@radix-ui/react-tooltip":            "https://esm.sh/@radix-ui/react-tooltip"
     }
   }
-  </script>
+  <\/script>
 
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; }
-  </style>
-</head>
+  <\/style>
+<\/head>
 <body>
-  <div id="root"></div>
+  <div id="root"><\/div>
 
   <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef, useCallback, useMemo, useReducer, useContext, createContext } from "react";
     import { createRoot } from "react-dom/client";
 
     // ── USER CODE START ──────────────────────────────────────────────
@@ -71,9 +67,8 @@ export function buildTemplate(code: string): string {
     // ── USER CODE END ────────────────────────────────────────────────
 
     const container = document.getElementById("root");
-    createRoot(container).render(<App />);
-  </script>
-</body>
-</html>
-`.trim();
+    createRoot(container).render(React.createElement(App));
+  <\/script>
+<\/body>
+<\/html>`;
 }
