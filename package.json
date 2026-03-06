@@ -1,0 +1,40 @@
+{
+  "name": "@aquiles-ai/renderize",
+  "version": "1.0.0",
+  "description": "Drop-in sandbox component that executes AI-generated React code with zero configuration.",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --external react react-dom",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --external react react-dom --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aquiles-ai/Renderize.git"
+  },
+  "keywords": [
+    "react",
+    "sandbox",
+    "generative-ui",
+    "radix-ui",
+    "tailwind",
+    "iframe",
+    "ai"
+  ],
+  "author": "Fredy Rivera / Aquiles-ai",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Aquiles-ai/Renderize/issues"
+  },
+  "homepage": "https://github.com/Aquiles-ai/Renderize#readme",
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  }
+}
