@@ -58,8 +58,71 @@ export function buildTemplate(code: string): string {
 <body>
   <div id="root"><\/div>
 
+  <script>
+    // ── FETCH PROXY ──────────────────────────────────────────────────
+    // Override window.fetch to proxy requests through the parent window.
+    // This solves the CORS/null-origin issue with srcdoc iframes:
+    // the parent has a real origin and can make fetch calls freely.
+    window.fetch = function(url, options = {}) {
+      return new Promise((resolve, reject) => {
+        const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+        // Serialize body — postMessage can't transfer Request objects
+        const serializedOptions = {
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body || null,
+        };
+
+        // Listen for the response from the parent
+        function handleMessage(event) {
+          if (
+            event.data?.source !== "renderize" ||
+            event.data?.type !== "fetch-response" ||
+            event.data?.id !== id
+          ) return;
+
+          window.removeEventListener("message", handleMessage);
+
+          if (event.data.error) {
+            reject(new Error(event.data.error));
+            return;
+          }
+
+          // Reconstruct a real Response object from the serialized data
+          const { status, statusText, headers, body } = event.data;
+          const responseBody = typeof body === "string" ? body : JSON.stringify(body);
+
+          const response = new Response(responseBody, {
+            status,
+            statusText,
+            headers: new Headers(headers),
+          });
+
+          resolve(response);
+        }
+
+        window.addEventListener("message", handleMessage);
+
+        // Ask the parent to perform the fetch on our behalf
+        window.parent.postMessage({
+          source: "renderize",
+          type: "fetch-request",
+          id,
+          url,
+          options: serializedOptions,
+        }, "*");
+      });
+    };
+    // ── END FETCH PROXY ──────────────────────────────────────────────
+  <\/script>
+
   <script type="text/babel" data-type="module">
-    import React, { useState, useEffect, useRef, useCallback, useMemo, useReducer, useContext, createContext } from "react";
+    import React, {
+      useState, useEffect, useRef, useCallback,
+      useMemo, useReducer, useContext, createContext,
+      forwardRef, Fragment
+    } from "react";
     import { createRoot } from "react-dom/client";
 
     // ── USER CODE START ──────────────────────────────────────────────

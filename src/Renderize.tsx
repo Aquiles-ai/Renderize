@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { buildTemplate } from "./template.js";
 
 export interface RenderizeProps {
@@ -25,26 +25,65 @@ export function Renderize({
   style,
   onError,
 }: RenderizeProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
 
   useEffect(() => {
     if (!code?.trim()) return;
-    // srcdoc works with sandbox="allow-scripts" — no blob URL needed,
-    // no same-origin restriction, content is inlined directly
     setSrcDoc(buildTemplate(code));
   }, [code]);
 
-  // Forward runtime errors from the iframe to the parent
+  // Central message handler — handles both fetch proxying and error forwarding
   useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      if (
-        event.data?.source === "renderize" &&
-        event.data?.type === "error" &&
-        onError
-      ) {
+    const handler = async (event: MessageEvent) => {
+      if (event.data?.source !== "renderize") return;
+
+      // ── Fetch proxy ────────────────────────────────────────────────
+      if (event.data.type === "fetch-request") {
+        const { id, url, options } = event.data;
+
+        try {
+          const res = await fetch(url, {
+            method: options.method,
+            headers: options.headers,
+            body: options.body ?? undefined,
+          });
+
+          // Serialize the response body as text — the iframe will parse it
+          const body = await res.text();
+
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              source: "renderize",
+              type: "fetch-response",
+              id,
+              status: res.status,
+              statusText: res.statusText,
+              // Convert Headers to a plain object for structured clone
+              headers: Object.fromEntries(res.headers.entries()),
+              body,
+            },
+            "*"
+          );
+        } catch (err) {
+          iframeRef.current?.contentWindow?.postMessage(
+            {
+              source: "renderize",
+              type: "fetch-response",
+              id,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            "*"
+          );
+        }
+      }
+
+      // ── Error forwarding ───────────────────────────────────────────
+      if (event.data.type === "error" && onError) {
         onError(event.data.message);
       }
     };
+
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, [onError]);
@@ -56,9 +95,8 @@ export function Renderize({
     >
       {srcDoc && (
         <iframe
-          // key forces a full remount on every new render,
-          // guaranteeing a clean JS context each time
           key={srcDoc}
+          ref={iframeRef}
           srcDoc={srcDoc}
           title="Renderize Sandbox"
           sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
