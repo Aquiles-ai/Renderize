@@ -53,6 +53,28 @@ export function buildTemplate(code: string): string {
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; }
+
+    /* Scrollbar personalizada: fina y semi-transparente */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.35);
+      border-radius: 999px;
+      transition: background 0.2s ease;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.55);
+    }
+    /* Firefox */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+    }
   <\/style>
 <\/head>
 <body>
