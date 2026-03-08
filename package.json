@@ -1,6 +1,6 @@
 {
   "name": "@aquiles-ai/renderize",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Drop-in sandbox component that executes AI-generated React code with zero configuration.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
