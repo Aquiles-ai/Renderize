@@ -74,7 +74,11 @@ export default function Playground() {
 
 <img src="https://res.cloudinary.com/dmtomxyvm/image/upload/v1772990544/Captura_de_pantalla_2157_ziyjnu.png" alt="Example1" width="600"/>
 
+<div> </div>
+
 <img src="https://res.cloudinary.com/dmtomxyvm/image/upload/v1772990545/Captura_de_pantalla_2158_b3e1up.png" alt="Example2" width="600"/>
+
+<div> </div>
 
 <img src="https://res.cloudinary.com/dmtomxyvm/image/upload/v1772990556/Captura_de_pantalla_2159_azlagy.png" alt="Example3" width="600"/>
 
