@@ -200,6 +200,28 @@ function flattenMultilineImports(code: string): string {
   );
 }
 
+/**
+ * True when the user code already binds `name` — via an import that stays in
+ * the final code, or a top-level declaration. Injecting a radix namespace
+ * with that name would duplicate the binding (e.g. recharts also exports
+ * `Tooltip`) and Babel would fail with "Identifier 'X' has already been
+ * declared". Imports from template-provided modules (react, the `radix`
+ * barrel, ...) are stripped before this check, so they do NOT count as
+ * bindings — those namespaces must still be injected.
+ */
+function isBoundByUserCode(code: string, name: string): boolean {
+  const importRe = new RegExp(
+    `^import\\s+(?:type\\s+)?(?:[^"']*?\\b${name}\\b[^"']*?)\\s+from\\s+["']([^"']+)["']\\s*;?$`,
+    "gm"
+  );
+  let match: RegExpExecArray | null;
+  while ((match = importRe.exec(code)) !== null) {
+    const modulePath = match[1];
+    if (modulePath && !TEMPLATE_PROVIDED_MODULES.has(modulePath)) return true;
+  }
+  return new RegExp(`^(?:function|const|let|var)\\s+${name}\\b`, "m").test(code);
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -318,10 +340,18 @@ export function sanitizeCode(raw: string): SanitizeResult {
   );
 
   // ── 8. Detect Radix usage for barrel namespace injection ────────────────
+  // Only inject a namespace when the identifier is not already bound by the
+  // user's code — otherwise the injected `const Tooltip = _RadixTooltip`
+  // collides with the user's own import (recharts also exports Tooltip).
   const radix: string[] = [];
   for (const pkg of RADIX_PACKAGES) {
     const prefix = radixPrefix(pkg);
-    if (new RegExp(`\\b${prefix}`).test(code)) radix.push(pkg);
+    if (
+      new RegExp(`\\b${prefix}`).test(code) &&
+      !isBoundByUserCode(code, prefix)
+    ) {
+      radix.push(pkg);
+    }
   }
 
   // ── 9. Collapse excessive blank lines ────────────────────────────────────
