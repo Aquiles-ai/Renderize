@@ -2,9 +2,19 @@
   "name": "@aquiles-ai/renderize",
   "version": "2.2.0",
   "description": "Drop-in sandbox component that executes AI-generated React code with zero configuration.",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --external react react-dom",
     "dev": "tsup src/index.ts --format cjs,esm --dts --external react react-dom --watch"

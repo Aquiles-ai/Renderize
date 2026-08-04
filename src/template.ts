@@ -1,4 +1,52 @@
-export function buildTemplate(code: string): string {
+import { RADIX_PACKAGES, radixPrefix } from "./catalog.js";
+
+const BASE_IMPORT_MAP: Record<string, string> = {
+  react: "https://esm.sh/react@18",
+  "react/jsx-runtime": "https://esm.sh/react@18/jsx-runtime",
+  "react-dom": "https://esm.sh/react-dom@18",
+  "react-dom/client": "https://esm.sh/react-dom@18/client",
+};
+
+const radixUrl = (pkg: string) =>
+  `https://esm.sh/${pkg}?external=react,react-dom`;
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Builds the sandbox srcdoc for a piece of (already sanitized) user code.
+ *
+ * @param code        Sanitized LLM code.
+ * @param extraImports Extra importmap entries (bare specifier -> esm.sh URL).
+ * @param usedRadix   Radix packages to expose as compound-component
+ *                    namespaces (e.g. `Dialog` for @radix-ui/react-dialog).
+ */
+export function buildTemplate(
+  code: string,
+  extraImports: Record<string, string> = {},
+  usedRadix: string[] = []
+): string {
+  const importMap: Record<string, string> = { ...BASE_IMPORT_MAP };
+  for (const pkg of RADIX_PACKAGES) importMap[pkg] = radixUrl(pkg);
+  Object.assign(importMap, extraImports);
+
+  const importMapJson = JSON.stringify({ imports: importMap });
+
+  // Namespace injection: `Dialog` -> compound component namespace
+  // (Dialog.Root, Dialog.Trigger, ...) resolved to @radix-ui/react-dialog.
+  const radixSetup = usedRadix
+    .map((pkg) => {
+      const prefix = radixPrefix(pkg);
+      return `import * as _Radix${prefix} from "${radixUrl(pkg)}";\nconst ${prefix} = _Radix${prefix};`;
+    })
+    .join("\n");
+  const modulePrelude = radixSetup ? `${radixSetup}\n` : "";
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,45 +57,7 @@ export function buildTemplate(code: string): string {
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
 
   <script type="importmap">
-  {
-    "imports": {
-      "react":                              "https://esm.sh/react@18",
-      "react/jsx-runtime":                  "https://esm.sh/react@18/jsx-runtime",
-      "react-dom":                          "https://esm.sh/react-dom@18",
-      "react-dom/client":                   "https://esm.sh/react-dom@18/client",
-      "lucide-react":                       "https://esm.sh/lucide-react?external=react",
-      "clsx":                               "https://esm.sh/clsx",
-      "class-variance-authority":           "https://esm.sh/class-variance-authority",
-      "tailwind-merge":                     "https://esm.sh/tailwind-merge",
-      "@radix-ui/react-accordion":          "https://esm.sh/@radix-ui/react-accordion?external=react,react-dom",
-      "@radix-ui/react-alert-dialog":       "https://esm.sh/@radix-ui/react-alert-dialog?external=react,react-dom",
-      "@radix-ui/react-avatar":             "https://esm.sh/@radix-ui/react-avatar?external=react,react-dom",
-      "@radix-ui/react-checkbox":           "https://esm.sh/@radix-ui/react-checkbox?external=react,react-dom",
-      "@radix-ui/react-collapsible":        "https://esm.sh/@radix-ui/react-collapsible?external=react,react-dom",
-      "@radix-ui/react-context-menu":       "https://esm.sh/@radix-ui/react-context-menu?external=react,react-dom",
-      "@radix-ui/react-dialog":             "https://esm.sh/@radix-ui/react-dialog?external=react,react-dom",
-      "@radix-ui/react-dropdown-menu":      "https://esm.sh/@radix-ui/react-dropdown-menu?external=react,react-dom",
-      "@radix-ui/react-hover-card":         "https://esm.sh/@radix-ui/react-hover-card?external=react,react-dom",
-      "@radix-ui/react-label":              "https://esm.sh/@radix-ui/react-label?external=react,react-dom",
-      "@radix-ui/react-menubar":            "https://esm.sh/@radix-ui/react-menubar?external=react,react-dom",
-      "@radix-ui/react-navigation-menu":    "https://esm.sh/@radix-ui/react-navigation-menu?external=react,react-dom",
-      "@radix-ui/react-popover":            "https://esm.sh/@radix-ui/react-popover?external=react,react-dom",
-      "@radix-ui/react-progress":           "https://esm.sh/@radix-ui/react-progress?external=react,react-dom",
-      "@radix-ui/react-radio-group":        "https://esm.sh/@radix-ui/react-radio-group?external=react,react-dom",
-      "@radix-ui/react-scroll-area":        "https://esm.sh/@radix-ui/react-scroll-area?external=react,react-dom",
-      "@radix-ui/react-select":             "https://esm.sh/@radix-ui/react-select?external=react,react-dom",
-      "@radix-ui/react-separator":          "https://esm.sh/@radix-ui/react-separator?external=react,react-dom",
-      "@radix-ui/react-slider":             "https://esm.sh/@radix-ui/react-slider?external=react,react-dom",
-      "@radix-ui/react-slot":               "https://esm.sh/@radix-ui/react-slot?external=react,react-dom",
-      "@radix-ui/react-switch":             "https://esm.sh/@radix-ui/react-switch?external=react,react-dom",
-      "@radix-ui/react-tabs":               "https://esm.sh/@radix-ui/react-tabs?external=react,react-dom",
-      "@radix-ui/react-toast":              "https://esm.sh/@radix-ui/react-toast?external=react,react-dom",
-      "@radix-ui/react-toggle":             "https://esm.sh/@radix-ui/react-toggle?external=react,react-dom",
-      "@radix-ui/react-toggle-group":       "https://esm.sh/@radix-ui/react-toggle-group?external=react,react-dom",
-      "@radix-ui/react-toolbar":            "https://esm.sh/@radix-ui/react-toolbar?external=react,react-dom",
-      "@radix-ui/react-tooltip":            "https://esm.sh/@radix-ui/react-tooltip?external=react,react-dom"
-    }
-  }
+  ${importMapJson}
   <\/script>
 
   <style>
@@ -99,6 +109,7 @@ export function buildTemplate(code: string): string {
         // Listen for the response from the parent
         function handleMessage(event) {
           if (
+            event.source !== window.parent ||
             event.data?.source !== "renderize" ||
             event.data?.type !== "fetch-response" ||
             event.data?.id !== id
@@ -137,6 +148,22 @@ export function buildTemplate(code: string): string {
       });
     };
     // ── END FETCH PROXY ──────────────────────────────────────────────
+
+    // ── ERROR FORWARDING ─────────────────────────────────────────────
+    // Surfaces runtime errors to the parent via onError().
+    window.addEventListener("error", function(event) {
+      var message = event.error && event.error.message ? event.error.message : event.message;
+      window.parent.postMessage({ source: "renderize", type: "error", message: String(message) }, "*");
+    }, true);
+    window.addEventListener("unhandledrejection", function(event) {
+      var reason = event.reason;
+      window.parent.postMessage({
+        source: "renderize",
+        type: "error",
+        message: String(reason && reason.message ? reason.message : reason),
+      }, "*");
+    }, true);
+    // ── END ERROR FORWARDING ─────────────────────────────────────────
   <\/script>
 
   <script type="text/babel" data-type="module">
@@ -147,13 +174,99 @@ export function buildTemplate(code: string): string {
     } from "react";
     import { createRoot } from "react-dom/client";
 
+    ${modulePrelude}
     // ── USER CODE START ──────────────────────────────────────────────
     ${code}
     // ── USER CODE END ────────────────────────────────────────────────
 
+    class RenderizeErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { message: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { message: (error && error.message) || String(error) };
+      }
+      componentDidCatch(error) {
+        window.parent.postMessage({
+          source: "renderize",
+          type: "error",
+          message: (error && error.message) || String(error),
+        }, "*");
+      }
+      render() {
+        if (this.state.message) {
+          return React.createElement(
+            "div",
+            { style: { padding: "16px", fontFamily: "system-ui, sans-serif", color: "#b91c1c", whiteSpace: "pre-wrap" } },
+            "Render error: " + this.state.message
+          );
+        }
+        return this.props.children;
+      }
+    }
+
     const container = document.getElementById("root");
-    createRoot(container).render(React.createElement(App));
+    createRoot(container).render(
+      React.createElement(RenderizeErrorBoundary, null, React.createElement(App))
+    );
   <\/script>
 <\/body>
 <\/html>`;
+}
+
+/**
+ * Builds the srcdoc shown when the code fails to sanitize/resolve — a clear,
+ * agent-friendly error screen instead of a silently broken (or blank) iframe.
+ */
+export function buildErrorTemplate(error: string): string {
+  const escaped = escapeHtml(error);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0d0d12;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      max-width: 640px;
+      width: 100%;
+      background: #16161d;
+      border: 1px solid #2a2a38;
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .badge {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8b8b9e;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    .msg {
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Renderize Sandbox</div>
+    <div class="msg">${escaped}</div>
+  </div>
+</body>
+</html>`;
 }

@@ -29,7 +29,8 @@ Parent window
     ├── React 18 + ReactDOM
     ├── Tailwind CSS (CDN)
     ├── Babel standalone           transpiles JSX + modern JS at runtime
-    ├── importmap                  resolves lucide-react, @radix-ui/*, etc.
+    ├── dynamic importmap          resolved from the code's own imports
+    ├── radix barrel               compound components like <Dialog.Root>
     └── App()                      your LLM-generated component
 ```
 
@@ -97,19 +98,77 @@ export default function Playground() {
 
 ## Available libraries
 
-The sandbox importmap includes the following packages. Imports from any other module are stripped by `sanitizeCode`.
+The model writes plain imports — Renderize resolves them against a catalog and
+builds the iframe's importmap dynamically. The catalog is exposed as
+`Renderize.CATALOG` (and each entry is machine-readable), so you can feed it to
+your LLM's system prompt.
 
-| Package | Notes |
-|---------|-------|
-| `react` | v18, hooks already in global scope |
-| `react-dom` | v18 |
-| `lucide-react` | Icon library |
-| `clsx` | Class name utility |
-| `tailwind-merge` | Tailwind class merging |
-| `class-variance-authority` | CVA, variant-based styling |
-| `@radix-ui/react-*` | Full Radix UI primitives suite |
+> **Agent hint:** stop models from guessing packages. Print `Renderize.CATALOG`
+> or the README's table into the prompt, and tell them: "you may import any of
+> the following; importing anything else will fail loudly with the available
+> list, so correct your next attempt."
 
-React hooks (`useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`, `useReducer`, `useContext`, `createContext`, `forwardRef`, `Fragment`) are already imported and available in global scope. The LLM does not need to import them.
+| Package | Description | Example |
+|---------|-------------|---------|
+| `react` `react-dom` | Already loaded — hooks in scope | no import needed |
+| `radix` | All Radix primitives in one namespace (`Dialog`, `Select`, `Tabs`, …) — compound components | `import { Dialog } from "radix"; <Dialog.Root>…` |
+| `@radix-ui/react-*` | Full Radix suite (direct imports also work) | `import { Root } from "@radix-ui/react-dialog"` |
+| `lucide-react` | Icons | `import { Plus } from "lucide-react"` |
+| `clsx` | Class name utility | `import { clsx } from "clsx"` |
+| `tailwind-merge` | Tailwind class merging | `import { twMerge } from "tailwind-merge"` |
+| `class-variance-authority` | Variant-based styling | `import { cva } from "class-variance-authority"` |
+| `recharts` | Charts | `import { LineChart, Line } from "recharts"` |
+| `framer-motion` | Animations | `import { motion } from "framer-motion"` |
+| `three` | 3D rendering | `import * as THREE from "three"` |
+| `zustand` | State management | `import { create } from "zustand"` |
+| `date-fns` | Date utilities | `import { format } from "date-fns"` |
+| `axios` | HTTP client | `import axios from "axios"` |
+| `react-hook-form` | Forms | `import { useForm } from "react-hook-form"` |
+| `zod` | Schema validation | `import { z } from "zod"` |
+| `@tanstack/react-query` | Data fetching | `import { useQuery } from "@tanstack/react-query"` |
+| `sonner` | Toasts | `import { toast } from "sonner"` |
+
+Imports are **resolved, not stripped**: each catalog package is wired into the
+importmap as `https://esm.sh/<pkg>…?external=react,react-dom`, which guarantees a
+single React instance across all packages (the classic "invalid hook call"
+double-React trap is handled for you). Subpath resolution is included too
+(`three/examples/jsm/…`), so deep imports also work.
+
+**Fail loud, never silent.** If the code imports a package outside the catalog,
+the sandbox shows a clear error listing the offending package and the available
+ones, and `onError` fires with the same message — so the error can be fed back
+to the model for self-correction on the next attempt.
+
+### Radix barrel
+
+`import { Dialog } from "radix"` exposes the React built-in *in scope*, no
+package name memorization needed. Even without an import, using a Radix
+component name like `<Dialog.Root>` is detected and resolved automatically.
+
+```tsx
+import { Dialog } from "radix";
+
+function App() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger className="px-4 py-2 rounded bg-blue-600 text-white">
+        Open
+      </Dialog.Trigger>
+      <Dialog.Content className="fixed inset-0 m-auto h-fit w-96 rounded-lg bg-white p-6">
+        <Dialog.Title>Hello</Dialog.Title>
+        <Dialog.Description>I work inside the sandbox.</Dialog.Description>
+        <Dialog.Close className="mt-4 text-sm text-gray-500">Close</Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+}
+```
+
+React hooks (`useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`,
+`useReducer`, `useContext`, `createContext`, `forwardRef`, `Fragment`) and
+`React` itself are already in module scope. The LLM does not need to import
+them.
 
 ## Requirements for LLM-generated code
 

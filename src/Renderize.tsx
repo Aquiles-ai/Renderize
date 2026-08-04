@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import React, { useEffect, useRef, useState } from "react";
-import { buildTemplate } from "./template.js";
+import { buildErrorTemplate, buildTemplate } from "./template.js";
 import { sanitizeCode } from "./sanitize.js";
 
 export interface RenderizeProps {
@@ -28,15 +28,27 @@ export function Renderize({
 }: RenderizeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
 
   useEffect(() => {
     if (!code?.trim()) return;
-    setSrcDoc(buildTemplate(sanitizeCode(code)));
+    const result = sanitizeCode(code);
+    if (result.error) {
+      onErrorRef.current?.(result.error);
+      setSrcDoc(buildErrorTemplate(result.error));
+      return;
+    }
+    setSrcDoc(buildTemplate(result.code, result.importMap, result.radix));
   }, [code]);
 
   // Central message handler — handles both fetch proxying and error forwarding
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
       if (event.data?.source !== "renderize") return;
 
       // ── Fetch proxy ────────────────────────────────────────────────
@@ -80,14 +92,14 @@ export function Renderize({
       }
 
       // ── Error forwarding ───────────────────────────────────────────
-      if (event.data.type === "error" && onError) {
-        onError(event.data.message);
+      if (event.data.type === "error") {
+        onErrorRef.current?.(event.data.message);
       }
     };
 
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [onError]);
+  }, []);
 
   return (
     <div

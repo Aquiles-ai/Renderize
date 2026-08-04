@@ -1,14 +1,28 @@
-// ── Constants ────────────────────────────────────────────────────────────────
+import type { CatalogEntry } from "./catalog.js";
+import { CATALOG_MAP, CATALOG_NAMES, RADIX_PACKAGES, radixPrefix } from "./catalog.js";
+
+export interface SanitizeResult {
+  /** Cleaned code, ready to be embedded in the sandbox module. */
+  code: string;
+  /** Extra importmap entries (bare specifier -> esm.sh URL), including subpath prefixes. */
+  importMap: Record<string, string>;
+  /** Radix packages used by the code (barrel namespaces will be injected). */
+  radix: string[];
+  /** Fail-loud error when the code imports a package outside the catalog. */
+  error?: string;
+}
 
 /**
- * Modules already injected by the sandbox template (react, react-dom, etc.).
- * Imports from these are always stripped.
+ * Modules injected by the sandbox template (react, react-dom, the `radix`
+ * barrel). Imports from these are always stripped — their bindings are
+ * already in module scope.
  */
 const TEMPLATE_PROVIDED_MODULES = new Set([
   "react",
   "react-dom",
   "react-dom/client",
   "react/jsx-runtime",
+  "radix",
 ]);
 
 /**
@@ -31,47 +45,19 @@ const TEMPLATE_PROVIDED_NAMES = new Set([
 ]);
 
 /**
- * Every module present in the template's importmap.
- * Imports from modules NOT in this set are stripped (they'd cause a network
- * error or a module-resolution failure inside the srcdoc iframe).
+ * Registers a catalog package in the importmap, including a subpath prefix
+ * entry (e.g. "three/": "https://esm.sh/three/") so deep imports like
+ * "three/examples/jsm/controls/OrbitControls.js" resolve too.
  */
-const IMPORTMAP_MODULES = new Set([
-  "react",
-  "react/jsx-runtime",
-  "react-dom",
-  "react-dom/client",
-  "lucide-react",
-  "clsx",
-  "class-variance-authority",
-  "tailwind-merge",
-  "@radix-ui/react-accordion",
-  "@radix-ui/react-alert-dialog",
-  "@radix-ui/react-avatar",
-  "@radix-ui/react-checkbox",
-  "@radix-ui/react-collapsible",
-  "@radix-ui/react-context-menu",
-  "@radix-ui/react-dialog",
-  "@radix-ui/react-dropdown-menu",
-  "@radix-ui/react-hover-card",
-  "@radix-ui/react-label",
-  "@radix-ui/react-menubar",
-  "@radix-ui/react-navigation-menu",
-  "@radix-ui/react-popover",
-  "@radix-ui/react-progress",
-  "@radix-ui/react-radio-group",
-  "@radix-ui/react-scroll-area",
-  "@radix-ui/react-select",
-  "@radix-ui/react-separator",
-  "@radix-ui/react-slider",
-  "@radix-ui/react-slot",
-  "@radix-ui/react-switch",
-  "@radix-ui/react-tabs",
-  "@radix-ui/react-toast",
-  "@radix-ui/react-toggle",
-  "@radix-ui/react-toggle-group",
-  "@radix-ui/react-toolbar",
-  "@radix-ui/react-tooltip",
-]);
+function addToImportMap(map: Record<string, string>, entry: CatalogEntry): void {
+  const version = entry.version ? `@${entry.version}` : "";
+  map[entry.name] = `https://esm.sh/${entry.name}${version}?external=react,react-dom`;
+  map[`${entry.name}/`] = `https://esm.sh/${entry.name}${version}/`;
+}
+
+function buildUnavailableError(modulePath: string): string {
+  return `Package "${modulePath}" is not available in the Renderize sandbox. Available packages: ${CATALOG_NAMES.join(", ")}.`;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -203,32 +189,52 @@ function detectMainComponentName(code: string): string | null {
   return null;
 }
 
+/**
+ * Collapses newlines inside multiline import statements so the per-line
+ * import processor below can handle them (LLMs often emit multiline imports).
+ */
+function flattenMultilineImports(code: string): string {
+  return code.replace(
+    /import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["'][^"']+["']\s*;?/g,
+    (line) => line.replace(/\s*\n\s*/g, " ")
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
- * Sanitizes LLM-generated React code before passing it to buildTemplate().
+ * Sanitizes LLM-generated React code and resolves its imports against the
+ * catalog, before passing it to buildTemplate().
  *
  * Steps (in order):
  *  1. Strip markdown code fences
- *  2. Fix literal escape sequences (\\n, \\t, \\r)
+ *  2. Fix double-escaped literals (\\n, \\t, \\r)
  *  3. Strip Next.js / RSC directives ('use client', 'use server')
  *  4. Strip TypeScript-only syntax (interface, type, enum, `as` assertions)
  *  5. Ensure the main component is named App and has no export keyword
- *  6. Strip imports from modules outside the importmap
+ *  6. Resolve imports:
+ *       - template-provided modules (react, radix, ...) → stripped
+ *       - catalog packages → kept + added to the dynamic importmap
+ *       - anything else → fail loud: stripped and reported as `error`
  *  7. Strip CommonJS require() calls
- *  8. Collapse excessive blank lines
+ *  8. Detect Radix usage (barrel namespaces to inject)
+ *  9. Collapse excessive blank lines
  */
-export function sanitizeCode(raw: string): string {
+export function sanitizeCode(raw: string): SanitizeResult {
   let code = raw;
+  const importMap: Record<string, string> = {};
+  const errors: string[] = [];
 
   // ── 1. Strip markdown code fences ───────────────────────────────────────
   code = code.replace(/^```[a-zA-Z]*\r?\n?/, "").replace(/\r?\n?```\s*$/, "");
 
-  // ── 2. Fix literal escape sequences ─────────────────────────────────────
+  // ── 2. Fix double-escaped literal sequences ─────────────────────────────
+  // Only collapses \\n -> \n (two backslashes + n). Correct single-escaped
+  // code like `"a\nb"` is left untouched — escaping it would be a SyntaxError.
   code = code
-    .replace(/\\n/g, "\n")
-    .replace(/\\t/g, "\t")
-    .replace(/\\r/g, "\r");
+    .replace(/\\\\n/g, "\\n")
+    .replace(/\\\\t/g, "\\t")
+    .replace(/\\\\r/g, "\\r");
 
   // ── 3. Strip Next.js / RSC directives ───────────────────────────────────
   code = code.replace(/^\s*['"]use (client|server)['"]\s*;?\s*\n?/gm, "");
@@ -239,7 +245,7 @@ export function sanitizeCode(raw: string): string {
 
   // ── 5. Fix component name and remove export keywords ────────────────────
   // The template calls React.createElement(App), so App must be a plain
-  // function in global scope — no export keyword.
+  // function in module scope — no export keyword.
 
   const originalName = detectMainComponentName(code);
   if (originalName) {
@@ -255,21 +261,20 @@ export function sanitizeCode(raw: string): string {
   code = code.replace(/\bexport\s+(function\s+App\b)/, "$1");
   code = code.replace(/\bexport\s+((?:const|let)\s+App\b)/, "$1");
 
-  // ── 6. Strip imports from modules outside the importmap ─────────────────
+  // ── 6. Resolve imports ──────────────────────────────────────────────────
+  code = flattenMultilineImports(code);
+
   const importLineRegex =
     /^import\s+(?:type\s+)?(?:[^"'\n]+\s+from\s+)?["']([^"']+)["'];?\s*$/gm;
 
   code = code.replace(importLineRegex, (line, modulePath) => {
-    // Always strip template-provided modules (already in global scope)
+    // Template-provided modules (react, react-dom, radix) are already in scope
     if (TEMPLATE_PROVIDED_MODULES.has(modulePath)) return "";
-
-    // Strip anything outside the importmap (would cause a fetch/resolve error)
-    if (!IMPORTMAP_MODULES.has(modulePath)) return "";
 
     // Strip if all named imports are already in scope from the template
     const namedMatch = line.match(/\{([^}]+)\}/);
     if (namedMatch) {
-        // @ts-ignore
+      // @ts-ignore
       const names = namedMatch[1]
         .split(",")
         // @ts-ignore
@@ -280,7 +285,29 @@ export function sanitizeCode(raw: string): string {
       }
     }
 
-    return line;
+    // Catalog package → keep the import, wire it into the dynamic importmap
+    const entry = CATALOG_MAP.get(modulePath);
+    if (entry) {
+      addToImportMap(importMap, entry);
+      return line;
+    }
+
+    // Deep import from a catalog package (e.g. "three/examples/...")
+    for (const name of CATALOG_MAP.keys()) {
+      if (modulePath.startsWith(`${name}/`)) {
+        const catalogEntry = CATALOG_MAP.get(name);
+        if (catalogEntry) addToImportMap(importMap, catalogEntry);
+        return line;
+      }
+    }
+
+    // Radix packages are resolvable natively (the template importmap always
+    // contains the full Radix suite)
+    if (RADIX_PACKAGES.includes(modulePath)) return line;
+
+    // Fail loud — never silently strip
+    errors.push(buildUnavailableError(modulePath));
+    return "";
   });
 
   // ── 7. Strip CommonJS require() calls ───────────────────────────────────
@@ -290,8 +317,21 @@ export function sanitizeCode(raw: string): string {
     ""
   );
 
-  // ── 8. Collapse excessive blank lines ────────────────────────────────────
+  // ── 8. Detect Radix usage for barrel namespace injection ────────────────
+  const radix: string[] = [];
+  for (const pkg of RADIX_PACKAGES) {
+    const prefix = radixPrefix(pkg);
+    if (new RegExp(`\\b${prefix}`).test(code)) radix.push(pkg);
+  }
+
+  // ── 9. Collapse excessive blank lines ────────────────────────────────────
   code = code.replace(/\n{3,}/g, "\n\n");
 
-  return code.trim();
+  const result: SanitizeResult = {
+    code: code.trim(),
+    importMap,
+    radix,
+  };
+  if (errors.length > 0) result.error = errors.join("\n");
+  return result;
 }
