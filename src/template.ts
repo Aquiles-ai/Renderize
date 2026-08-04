@@ -64,7 +64,7 @@ export function buildTemplate(
     * { box-sizing: border-box; }
     body { margin: 0; padding: 0; }
 
-    /* Scrollbar personalizada: fina y semi-transparente */
+    /* Custom scrollbar: thin and semi-transparent */
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;

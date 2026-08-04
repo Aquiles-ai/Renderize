@@ -210,8 +210,10 @@ function flattenMultilineImports(code: string): string {
  * bindings — those namespaces must still be injected.
  */
 function isBoundByUserCode(code: string, name: string): boolean {
+  // Not anchored to end-of-line: LLM imports sometimes continue past the
+  // closing quote (`... from "recharts" function App() {`).
   const importRe = new RegExp(
-    `^import\\s+(?:type\\s+)?(?:[^"']*?\\b${name}\\b[^"']*?)\\s+from\\s+["']([^"']+)["']\\s*;?$`,
+    `^import\\s+(?:type\\s+)?(?:[^"']*?\\b${name}\\b[^"']*?)\\s+from\\s+["']([^"']+)["']`,
     "gm"
   );
   let match: RegExpExecArray | null;
@@ -286,12 +288,19 @@ export function sanitizeCode(raw: string): SanitizeResult {
   // ── 6. Resolve imports ──────────────────────────────────────────────────
   code = flattenMultilineImports(code);
 
+  // Matches an import statement that starts at the beginning of a line. The
+  // closing quote may be followed by a semicolon AND/OR more code on the
+  // same line — LLMs often forget the newline after the module specifier
+  // (`... from "recharts" function App() {`). Group 4 captures that tail so
+  // it survives when the import itself is stripped, and kept imports are
+  // re-emitted with a guaranteed `;` + newline (Babel tolerates the missing
+  // newline, but native ESM parsers do not).
   const importLineRegex =
-    /^import\s+(?:type\s+)?(?:[^"'\n]+\s+from\s+)?["']([^"']+)["'];?\s*$/gm;
+    /^(import\s+(?:type\s+)?(?:[^"'\n]+\s+from\s+)?["'])([^"']+)(["'])(?:;)?([^\n]*)$/gm;
 
-  code = code.replace(importLineRegex, (line, modulePath) => {
+  code = code.replace(importLineRegex, (line, importStart, modulePath, importEnd, tail) => {
     // Template-provided modules (react, react-dom, radix) are already in scope
-    if (TEMPLATE_PROVIDED_MODULES.has(modulePath)) return "";
+    if (TEMPLATE_PROVIDED_MODULES.has(modulePath)) return tail;
 
     // Strip if all named imports are already in scope from the template
     const namedMatch = line.match(/\{([^}]+)\}/);
@@ -303,15 +312,20 @@ export function sanitizeCode(raw: string): SanitizeResult {
         .map((n) => n.trim().split(/\s+as\s+/)[0].trim())
         .filter(Boolean);
       if (names.length > 0 && names.every((n) => TEMPLATE_PROVIDED_NAMES.has(n))) {
-        return "";
+        return tail;
       }
     }
+
+    // Re-emit helper: import statement with a guaranteed semicolon, and the
+    // tail moved onto its own line when the LLM glued code to the import.
+    const keep = () =>
+      tail ? `${importStart}${modulePath}${importEnd};${tail}` : `${importStart}${modulePath}${importEnd};`;
 
     // Catalog package → keep the import, wire it into the dynamic importmap
     const entry = CATALOG_MAP.get(modulePath);
     if (entry) {
       addToImportMap(importMap, entry);
-      return line;
+      return keep();
     }
 
     // Deep import from a catalog package (e.g. "three/examples/...")
@@ -319,17 +333,17 @@ export function sanitizeCode(raw: string): SanitizeResult {
       if (modulePath.startsWith(`${name}/`)) {
         const catalogEntry = CATALOG_MAP.get(name);
         if (catalogEntry) addToImportMap(importMap, catalogEntry);
-        return line;
+        return keep();
       }
     }
 
     // Radix packages are resolvable natively (the template importmap always
     // contains the full Radix suite)
-    if (RADIX_PACKAGES.includes(modulePath)) return line;
+    if (RADIX_PACKAGES.includes(modulePath)) return keep();
 
     // Fail loud — never silently strip
     errors.push(buildUnavailableError(modulePath));
-    return "";
+    return tail;
   });
 
   // ── 7. Strip CommonJS require() calls ───────────────────────────────────

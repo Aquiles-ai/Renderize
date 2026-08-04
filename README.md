@@ -139,6 +139,22 @@ the sandbox shows a clear error listing the offending package and the available
 ones, and `onError` fires with the same message — so the error can be fed back
 to the model for self-correction on the next attempt.
 
+## LLM system prompt
+
+Instead of assembling prompt rules by hand, feed the model the exported
+`SYSTEM_PROMPT` — it encodes every sandbox rule (catalog packages, in-scope
+hooks, no TypeScript, only-import-what-you-use, fail-loud behavior) and is
+generated from the catalog, so it never drifts from what the sandbox supports.
+
+```tsx
+import { Renderize, SYSTEM_PROMPT } from "@aquiles-ai/renderize";
+
+const messages = [
+  { role: "system", content: SYSTEM_PROMPT },
+  { role: "user", content: "A bar chart of quarterly sales" },
+];
+```
+
 ### Radix barrel
 
 `import { Dialog } from "radix"` exposes the React built-in *in scope*, no
