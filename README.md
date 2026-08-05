@@ -85,6 +85,17 @@ export default function Playground() {
 
 </div>
 
+## Playground
+
+Want to try it live before integrating? The [Renderize Playground](https://github.com/Aquiles-ai/renderize-playground) is an open-source demo app: connect any OpenAI-compatible endpoint (OpenAI, self-hosted, local models), describe a component, and watch AI-generated React code render inside a Renderize sandbox — with auto-fix on render errors, syntax-highlighted code view, and local-only credentials.
+
+```bash
+git clone https://github.com/Aquiles-ai/renderize-playground.git
+cd renderize-playground
+npm install
+npm run dev
+```
+
 ## Props
 
 | Prop | Type | Default | Description |
